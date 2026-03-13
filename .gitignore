@@ -1,0 +1,15 @@
+# Model weights (too large for GitHub — hosted on Hugging Face)
+*.safetensors
+*.bin
+*.pt
+*.gguf
+
+# Tokenizer large files
+tokenizer.json
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Python cache
+__pycache__/
+*.pyc
