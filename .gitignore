@@ -13,3 +13,6 @@ tokenizer.json
 # Python cache
 __pycache__/
 *.pyc
+
+# Claude Code local settings
+.claude/
