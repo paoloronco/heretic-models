@@ -1,0 +1,252 @@
+<h2>GPU in affitto e modelli modificati: abliterare Mistral 7B nel cloud</h2>
+
+<p><em>Il secondo capitolo del progetto Heretic: stessa tecnica, modello più grande, GPU a noleggio per 2 euro — e qualche lezione inaspettata su come funziona davvero l'allineamento dei modelli AI.</em></p>
+
+<hr />
+
+<h3>Il punto di partenza</h3>
+
+<p>Nel primo esperimento avevo abliterato <strong>TinyLlama 1.1B</strong> sulla mia GPU locale — una RTX 3070 con 8GB di VRAM. Aveva funzionato bene: 200 trial di ottimizzazione in 15 minuti, risultato pubblicato su Hugging Face.</p>
+
+<p>Il passo successivo naturale era scalare: provare con un modello più capace. Ho scelto <strong>Mistral 7B Instruct v0.3</strong>, uno dei modelli open source più usati al mondo — sette volte più grande di TinyLlama, ma soprattutto addestrato con un processo di allineamento molto più aggressivo.</p>
+
+<p>Il problema immediato: Mistral 7B in piena precisione richiede ~14GB di VRAM. La mia GPU ne ha 8. In locale avrebbe richiesto quantizzazione a 4-bit (una compressione dei pesi che degrada la qualità) e circa 2.5 ore di elaborazione. Soluzione: GPU in affitto nel cloud.</p>
+
+<hr />
+
+<h3>Vast.ai: una GPU RTX 4090 per ~1.50 euro</h3>
+
+<p>Ho usato <a href="https://vast.ai">Vast.ai</a> — un marketplace dove privati e datacenter mettono a disposizione GPU inutilizzate a prezzi molto inferiori ai cloud tradizionali come AWS o Google Cloud.</p>
+
+<p>Ho noleggiato un'istanza con una <strong>RTX 4090 da 48GB di VRAM</strong> a circa $1.13/ora. Per un'operazione che si è conclusa in circa 30 minuti di ottimizzazione effettiva, il costo totale è stato <strong>inferiore a 2 euro</strong>.</p>
+
+<p>Il confronto con la mia macchina locale è significativo:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th></th>
+      <th>RTX 3070 (locale)</th>
+      <th>RTX 4090 (Vast.ai)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>VRAM</td>
+      <td>8 GB</td>
+      <td>48 GB</td>
+    </tr>
+    <tr>
+      <td>Quantizzazione necessaria</td>
+      <td>Sì (4-bit)</td>
+      <td>No — modello intero in bfloat16</td>
+    </tr>
+    <tr>
+      <td>Tempo per 200 trial</td>
+      <td>~2.5 ore (stima)</td>
+      <td><strong>19 minuti e 21 secondi</strong></td>
+    </tr>
+    <tr>
+      <td>Costo</td>
+      <td>€0</td>
+      <td>~€1.50</td>
+    </tr>
+    <tr>
+      <td>Qualità del modello risultante</td>
+      <td>Ridotta (dequantizzazione)</td>
+      <td>Massima</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Sull'istanza cloud, Mistral 7B girava in <strong>bfloat16 nativo</strong> — la stessa precisione con cui è stato addestrato — senza compromessi. Il download del modello (14.5GB) ha impiegato 1 minuto e 34 secondi a 153 MB/s. Tutto molto diverso da un laptop.</p>
+
+<hr />
+
+<h3>Come funziona il processo (riepilogo tecnico)</h3>
+
+<p>Per chi non ha letto il primo articolo: <strong>Heretic</strong> è uno strumento open source che modifica il comportamento di un LLM senza riaddestrarlo. Il processo in breve:</p>
+
+<ol>
+  <li><strong>Carica il modello</strong> dai server di Hugging Face</li>
+  <li><strong>Esegue forward pass</strong> su due dataset: prompt innocui e prompt problematici</li>
+  <li><strong>Analizza le attivazioni interne</strong> del transformer su entrambi i set per identificare la "direzione del rifiuto" nello spazio latente — cioè il pattern matematico associato alle risposte di rifiuto</li>
+  <li><strong>Ottimizza i parametri</strong> con Optuna (ottimizzazione bayesiana, 200 trial)</li>
+  <li><strong>Applica la correzione via LoRA</strong> — una modifica leggera e mirata ai pesi</li>
+</ol>
+
+<p>Il risultato non è un modello retrainato. È lo stesso modello con la geometria interna leggermente riorientata.</p>
+
+<hr />
+
+<h3>I risultati: Trial 173</h3>
+
+<p>Al termine dei 200 trial, Heretic presenta una lista di combinazioni Pareto-ottimali — quelle che minimizzano sia il numero di rifiuti che la divergenza dal modello originale.</p>
+
+<p>Ho scelto il <strong>Trial 173</strong>:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Metrica</th>
+      <th>Valore</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Rifiuti su 100 prompt</td>
+      <td><strong>4/100</strong></td>
+    </tr>
+    <tr>
+      <td>KL divergence</td>
+      <td><strong>0.0606</strong></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>La KL divergence misura quanto il modello si discosta dall'originale: valori sotto 0.5 indicano che le capacità generali sono intatte. 0.0606 è eccellente — meglio del risultato ottenuto con TinyLlama (0.0840).</p>
+
+<p>In pratica: il modello rifiuta 4 prompt su 100 invece di ~37, e le sue capacità originali sono largamente preservate.</p>
+
+<p>Il modello è pubblicato su Hugging Face: <a href="https://huggingface.co/paoloronco/Mistral-7B-Instruct-v0.3-heretic">paoloronco/Mistral-7B-Instruct-v0.3-heretic</a></p>
+
+<hr />
+
+<h3>La lezione più interessante: l'abliterazione non è magia</h3>
+
+<p>Dopo aver testato il modello, ho scoperto qualcosa che non avevo anticipato: <strong>Mistral 7B abliterato risponde in modo molto meno "libero" rispetto a TinyLlama abliterato</strong>.</p>
+
+<p>Il perché è tecnico ma importante da capire.</p>
+
+<p>TinyLlama era addestrato principalmente su testo grezzo con un allineamento molto leggero. Quando si abliterava la direzione del rifiuto, sotto non c'era quasi nulla — il modello rispondeva liberamente.</p>
+
+<p>Mistral 7B Instruct ha subito un <strong>RLHF (Reinforcement Learning from Human Feedback) intensivo</strong>: migliaia di esempi di feedback umano che hanno modellato non solo i rifiuti espliciti, ma anche il tono, lo stile, la tendenza a moralizzare e a inserire disclaimer. L'abliterazione rimuove il meccanismo del rifiuto diretto — ma i pattern comportamentali profondi rimangono nei pesi.</p>
+
+<p>Risultato pratico: il modello non dice più "non posso aiutarti con questo", ma la risposta che fornisce è comunque moderata, annacquata, con tendenza all'auto-censura implicita.</p>
+
+<p>Questo ha senso una volta capito come funziona il processo: <strong>Heretic modifica la geometria latente, non riscrive il training</strong>. Su modelli con RLHF leggero, basta. Su modelli con RLHF pesante, rimuove il sintomo ma non la causa.</p>
+
+<p>È una distinzione che non trovi spiegata chiaramente quasi da nessuna parte, e che cambia il modo in cui si sceglie il modello di partenza per questo tipo di esperimento.</p>
+
+<hr />
+
+<h3>I problemi tecnici incontrati (e risolti)</h3>
+
+<h4>Il proxy del nodo Vast.ai</h4>
+
+<p>Il nodo che avevo noleggiato aveva una configurazione di rete non standard: tutto il traffico verso Hugging Face veniva intercettato da un proxy locale, probabilmente un mirror per ridurre i costi di banda del provider.</p>
+
+<p>Questo causava due problemi:</p>
+
+<ul>
+  <li>Il <strong>download di modelli non popolari</strong> falliva con errore 401 (il mirror non li aveva in cache)</li>
+  <li>L'<strong>upload verso Hugging Face</strong> falliva perché il proxy non supportava il nuovo protocollo di storage (Xet) usato da HF</li>
+</ul>
+
+<p>Soluzione per il download: impostare la variabile d'ambiente <code>HF_ENDPOINT=https://huggingface.co</code> prima di lanciare qualsiasi comando.</p>
+
+<p>Soluzione per l'upload: disabilitare il protocollo Xet e forzare LFS classico con <code>HF_HUB_DISABLE_XET=1</code>.</p>
+
+<h4>Il formato del tokenizer</h4>
+
+<p>Heretic 1.3.0 salva il tokenizer con una classe non standard che le versioni locali di Transformers non riconoscono. Risolto modificando il file di configurazione del tokenizer per usare <code>PreTrainedTokenizerFast</code>.</p>
+
+<p>Piccolo ma utile: mostra quanto il versionamento degli strumenti AI cambi velocemente e quanto sia importante documentare l'ambiente esatto usato per ogni esperimento.</p>
+
+<hr />
+
+<h3>Cosa ho imparato (questa volta)</h3>
+
+<h4>Sul cloud computing per ML</h4>
+
+<p>Il cloud GPU ha senso economico per task puntuali e computazionalmente pesanti. Per addestrare o modificare modelli da 7B in su, noleggiare 30 minuti di RTX 4090 costa meno dell'elettricità che consumeresti a far girare la stessa operazione per ore sulla tua GPU locale — e il risultato è di qualità superiore perché si usa piena precisione senza quantizzazione.</p>
+
+<p>Vast.ai in particolare è interessante perché il mercato è competitivo: i prezzi variano molto tra i nodi, e con un po' di attenzione si trovano istanze verificate a meno di $0.40/ora.</p>
+
+<h4>Sul processo di allineamento dei modelli</h4>
+
+<p>L'esperimento ha reso concreto qualcosa che prima capivo solo in modo astratto: l'allineamento di un LLM non è uno strato separabile — è distribuito nei pesi attraverso tutto il training. Rimuovere il rifiuto esplicito è relativamente facile. Rimuovere i pattern comportamentali profondi richiede interventi diversi, più invasivi.</p>
+
+<p>I modelli con RLHF leggero (come certi fine-tune community, o i modelli base senza instruction tuning) rispondono molto meglio all'abliterazione. I modelli con RLHF pesante cedono il rifiuto esplicito ma mantengono il "carattere" del training.</p>
+
+<h4>Sulla scelta del modello di partenza</h4>
+
+<p>Non tutti i modelli sono equivalenti come candidati per l'abliterazione. Il criterio più importante non è la dimensione — è <strong>quanto aggressivo è stato il processo di allineamento</strong>. Un 7B con RLHF leggero darà risultati più netti di un 7B con RLHF intensivo.</p>
+
+<hr />
+
+<h3>Stack tecnico (aggiornato)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Strumento</th>
+      <th>Ruolo</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Heretic v1.3.0</td>
+      <td>Tool di abliterazione</td>
+    </tr>
+    <tr>
+      <td>PyTorch 2.11 + CUDA 13.0</td>
+      <td>Calcolo su GPU (cloud)</td>
+    </tr>
+    <tr>
+      <td>Transformers 5.9.0</td>
+      <td>Caricamento modelli</td>
+    </tr>
+    <tr>
+      <td>bitsandbytes 0.49.2</td>
+      <td>Quantizzazione (uso locale)</td>
+    </tr>
+    <tr>
+      <td>Optuna 4.8.0</td>
+      <td>Ottimizzazione bayesiana</td>
+    </tr>
+    <tr>
+      <td>PEFT / LoRA</td>
+      <td>Applicazione modifiche ai pesi</td>
+    </tr>
+    <tr>
+      <td>Safetensors</td>
+      <td>Formato salvataggio modello</td>
+    </tr>
+    <tr>
+      <td>HuggingFace Hub</td>
+      <td>Pubblicazione e distribuzione</td>
+    </tr>
+    <tr>
+      <td><strong>Vast.ai</strong></td>
+      <td><strong>GPU cloud a noleggio (RTX 4090, 48GB VRAM)</strong></td>
+    </tr>
+    <tr>
+      <td>Gradio</td>
+      <td>Interfaccia chat locale per test</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h3>Cosa NON è questo progetto (ancora)</h3>
+
+<p>Come nel primo articolo: non sono un AI engineer. Ho usato strumenti esistenti, documentazione, e la capacità di capire cosa stavo facendo prima di farlo — inclusi i problemi tecnici che si presentano quando si esce dai tutorial e si lavora con ambienti reali.</p>
+
+<p>L'errore più utile di questa sessione è stato probabilmente quello del proxy: ha costretto a capire come funziona il routing delle richieste HTTP in un ambiente cloud, come Hugging Face gestisce i diversi protocolli di upload, e come si diagnostica un problema di rete quando l'errore che vedi non corrisponde al problema reale.</p>
+
+<hr />
+
+<h3>Link</h3>
+
+<ul>
+  <li><a href="https://huggingface.co/paoloronco/Mistral-7B-Instruct-v0.3-heretic">Modello pubblicato: paoloronco/Mistral-7B-Instruct-v0.3-heretic</a></li>
+  <li><a href="https://huggingface.co/paoloronco/TinyLlama-1.1B-Chat-v1.0-heretic">Modello precedente: paoloronco/TinyLlama-1.1B-Chat-v1.0-heretic</a></li>
+  <li><a href="https://github.com/paoloronco/heretic-models">Repository GitHub modelli: paoloronco/heretic-models</a></li>
+  <li><a href="https://github.com/p-e-w/heretic">Heretic (tool originale)</a></li>
+  <li><a href="https://vast.ai">Vast.ai — GPU cloud a noleggio</a></li>
+  <li><a href="https://huggingface.co/paoloronco">Profilo HuggingFace: paoloronco</a></li>
+</ul>
+
+<hr />
